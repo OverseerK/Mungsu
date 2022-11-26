@@ -1,0 +1,4 @@
+name: Mungsu
+version: 1.0
+main: com.overseer.mungsu.Mungsu
+api-version: 1.19

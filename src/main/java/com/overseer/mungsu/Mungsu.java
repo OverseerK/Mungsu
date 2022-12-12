@@ -14,7 +14,6 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -24,14 +23,16 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
-
-import static org.bukkit.Bukkit.getWorldContainer;
+import java.util.Random;
 
 public final class Mungsu extends JavaPlugin implements Listener {
+
+    Random rand = new Random();
 
     World overworld;
     World netherworld;
@@ -41,8 +42,24 @@ public final class Mungsu extends JavaPlugin implements Listener {
     FileConfiguration beddata = YamlConfiguration.loadConfiguration(beddatafile);
     File compassdatafile = new File(getDataFolder(), "compass.yml");
     FileConfiguration compassdata = YamlConfiguration.loadConfiguration(compassdatafile);
-    File bukkitfile = new File(getWorldContainer(), "bukkit.yml");
-    FileConfiguration bukkit = YamlConfiguration.loadConfiguration(bukkitfile);
+    File configfile = new File(getDataFolder(), "config.yml");
+    FileConfiguration config = YamlConfiguration.loadConfiguration(configfile);
+
+    int elytraDamage;
+    int bedBreakPeriod;
+    int compassBreakPeriod;
+    int wolfEnhancePeriod;
+    double wolfEnhanceAmount;
+    int phantomSpawnPeriod;
+    int phantomSpawnDelay;
+    int phantomSpawnCount;
+    double hostileHealth;
+    double hostileStrength;
+    double undeadHealth;
+    double undeadStrength;
+    double netherHealth;
+    double netherStrength;
+    int dayLength;
 
 
     public int getDay() {
@@ -53,6 +70,25 @@ public final class Mungsu extends JavaPlugin implements Listener {
     public void onEnable() {
         Bukkit.broadcastMessage("§4【 SMP : THE NIGHTMARE 】 -  Reloaded.");
         Bukkit.getPluginManager().registerEvents(this, this);
+        if (!new File(getDataFolder(), "config.yml").exists()) {
+            saveDefaultConfig();
+        }
+        elytraDamage = config.getInt("폭죽 사용시 내구도 감소량");
+        bedBreakPeriod = config.getInt("침대 파괴 주기 (일)");
+        compassBreakPeriod = config.getInt("자석석 고장 주기 (일)");
+        wolfEnhancePeriod = config.getInt("늑대 강화 주기 (일)");
+        wolfEnhanceAmount = config.getInt("늑대 강화 배수");
+        phantomSpawnPeriod = config.getInt("팬텀 스폰 주기 (초)");
+        phantomSpawnDelay = config.getInt("팬텀 스폰 지연 (일)");
+        phantomSpawnCount = config.getInt("팬텀 스폰 수");
+        hostileHealth = config.getInt("몬스터 체력 배수");
+        hostileStrength = config.getInt("몬스터 공격력 배수");
+        undeadHealth = config.getInt("언데드 체력 배수");
+        undeadStrength = config.getInt("언데드 공격력 배수");
+        netherHealth = config.getInt("위더스켈/블레이즈 체력 배수");
+        netherStrength = config.getInt("위더스켈/블레이즈 공격력 배수");
+        dayLength = config.getInt("하루 길이 (틱)");
+
         for (World w : Bukkit.getWorlds()) {
             if (w.getEnvironment() == World.Environment.NORMAL) {
                 overworld = w;
@@ -69,27 +105,22 @@ public final class Mungsu extends JavaPlugin implements Listener {
         netherworld.setGameRule(GameRule.REDUCED_DEBUG_INFO, true);
         enderworld.setGameRule(GameRule.REDUCED_DEBUG_INFO, true);
         overworld.setFullTime(18000);
+
         //하루 타이머
         Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> {
-            long fulltime = overworld.getFullTime();
-            overworld.setFullTime(fulltime + 24000);
+            int day = config.getInt("날짜");
+            config.set("날짜", day + 1);
+            try {
+                config.save(configfile);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            overworld.setFullTime(day * 24000L + 18000);
             Bukkit.broadcastMessage("§eDAY " + getDay());
-
-//            if (getDay() % 5 == 0) {
-//                Bukkit.broadcastMessage("§4끔찍한 밤이 될 것 같다...");
-//                bukkit.set("spawn-limits.monsters", 160);
-//            } else {
-//                bukkit.set("spawn-limits.monsters", 80);
-//            }
-//            try {
-//                bukkit.save(bukkitfile);
-//            } catch (IOException e) {
-//                throw new RuntimeException(e);
-//            }
 
             //침대 삭제
             for (String name : beddata.getKeys(false)) {
-                if (getDay() == beddata.getInt(name) + 15) {
+                if (getDay() == beddata.getInt(name) + bedBreakPeriod) {
                     String[] cord = name.split(",");
                     overworld.getBlockAt(Integer.parseInt(cord[0]), Integer.parseInt(cord[1]), Integer.parseInt(cord[2])).setType(Material.AIR);
                     beddata.set(name, null);
@@ -103,7 +134,7 @@ public final class Mungsu extends JavaPlugin implements Listener {
 
             //자석석 초기화
             for (String name : compassdata.getKeys(false)) {
-                if (getDay() == compassdata.getInt(name) + 15) {
+                if (getDay() == compassdata.getInt(name) + compassBreakPeriod) {
                     String[] cord = name.split(",");
                     Block b = overworld.getBlockAt(Integer.parseInt(cord[0]), Integer.parseInt(cord[1]), Integer.parseInt(cord[2]));
                     b.setType(Material.AIR);
@@ -116,14 +147,34 @@ public final class Mungsu extends JavaPlugin implements Listener {
                     }
                 }
             }
-        }, 24000, 24000);
+
+        }, 0, dayLength);
 
         //팬텀 랜덤 스폰
-//        Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> {
-//            for (Player p : Bukkit.getOnlinePlayers()) {
-//                Phantom ph = (Phantom) overworld.spawnEntity(p.getLocation().add(rand.nextInt(20) - 10, rand.nextInt(20), rand.nextInt(20) - 10), EntityType.PHANTOM);
-//            }
-//        }, 0, 1200);
+        Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                Location l = p.getLocation();
+                if (l.getBlockY() >= l.getWorld().getHighestBlockYAt(l)) {
+                    for (int i = 0; i < phantomSpawnCount; i++) {
+                        Phantom ph = (Phantom) overworld.spawnEntity(p.getLocation().add(rand.nextInt(30) - 15, 30, rand.nextInt(30) - 15), EntityType.PHANTOM);
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                if (p.isDead()) {
+                                    ph.remove();
+                                    cancel();
+                                } else if (ph.isDead()) {
+                                    cancel();
+                                } else {
+                                    ph.setTarget(p);
+                                }
+                            }
+                        }.runTaskTimer(this, 0, 20);
+                    }
+                }
+            }
+        }, phantomSpawnDelay * 24000L, phantomSpawnPeriod * 20L);
+
     }
 
 //    public Location getRandomSpawn() {
@@ -248,20 +299,23 @@ public final class Mungsu extends JavaPlugin implements Listener {
         if (en instanceof Monster) {
             AttributeInstance attributehealth = en.getAttribute(Attribute.GENERIC_MAX_HEALTH);
             AttributeInstance attributedamage = en.getAttribute(Attribute.GENERIC_ATTACK_DAMAGE);
-            double modifer = 1.2;
+            double healthmodifer = hostileHealth;
+            double strengthmodifer = hostileStrength;
             if (en.getCategory() == EntityCategory.UNDEAD) {
-                modifer = 1.5;
+                healthmodifer = undeadHealth;
+                strengthmodifer = undeadStrength;
             }
             if (en.getType() == EntityType.WITHER_SKELETON || en.getType() == EntityType.BLAZE) {
-                modifer = 2;
+                healthmodifer = netherHealth;
+                strengthmodifer = netherStrength;
             }
             if (attributehealth != null) {
-                double health = attributehealth.getBaseValue() * modifer;
+                double health = attributehealth.getBaseValue() * healthmodifer;
                 attributehealth.setBaseValue(health);
                 en.setHealth(health);
             }
             if (attributedamage != null) {
-                attributedamage.setBaseValue(attributedamage.getBaseValue() * modifer);
+                attributedamage.setBaseValue(attributedamage.getBaseValue() * strengthmodifer);
             }
         }
     }
@@ -285,14 +339,20 @@ public final class Mungsu extends JavaPlugin implements Listener {
             Damageable dm = (Damageable) cp.getItemMeta();
             assert dm != null;
             int damage = dm.getDamage();
-            if (damage >= 425) {
+            if (damage >= 431 - elytraDamage) {
                 dm.setDamage(431);
             } else {
-                dm.setDamage(damage + 6);
+                dm.setDamage(damage + elytraDamage);
             }
             cp.setItemMeta(dm);
         }
     }
 
+    @EventHandler
+    public void wolfEnhance(EntityDamageByEntityEvent e) {
+        if (e.getDamager() instanceof Wolf) {
+            e.setDamage(e.getDamage() * getDay() / wolfEnhancePeriod * wolfEnhanceAmount);
+        }
+    }
 
 }
